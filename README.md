@@ -2,6 +2,8 @@
 
 A hardened, self-hosted llama.cpp deployment: digest-pinned, SHA-verified build, router mode for multi-model switching, a neon-terminal web UI, and a per-startup rotating API key — all bound to localhost, all running as unprivileged users.
 
+<img src="docs/assets/llama_terminal.png" alt="Screenshot of the app" width="400">
+
 ## Implementation
 
 ```
@@ -258,3 +260,7 @@ for i in $(seq 1 50); do curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0
 1. Pick the new upstream ref, resolve its SHA, rebuild with both `LLAMA_VERSION` + `LLAMA_COMMIT_SHA`, note both in your changelog.
 2. Re-pin digests: `ubuntu:24.04` (Dockerfile `BASE_IMAGE`), `nginx:1.27-alpine` and `alpine:3.20` (compose.yaml).
 3. `docker compose up -d` — keygen rotates the API key; browser clients just reconnect, `ask.sh` picks up the new key file automatically.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
