@@ -260,3 +260,7 @@ for i in $(seq 1 50); do curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0
 1. Pick the new upstream ref, resolve its SHA, rebuild with both `LLAMA_VERSION` + `LLAMA_COMMIT_SHA`, note both in your changelog.
 2. Re-pin digests: `ubuntu:24.04` (Dockerfile `BASE_IMAGE`), `nginx:1.27-alpine` and `alpine:3.20` (compose.yaml).
 3. `docker compose up -d` — keygen rotates the API key; browser clients just reconnect, `ask.sh` picks up the new key file automatically.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
