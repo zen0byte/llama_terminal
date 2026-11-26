@@ -1,0 +1,134 @@
+services:
+  # ---------- Per-startup key rotation ----------
+  # Runs keygen.sh once per `docker compose up`; writes fresh api_key +
+  # auth.conf into ${KEYS_DIR}. Other services start only after it exits 0.
+  # Runs as uid 1000 — same owner as the host ${KEYS_DIR} and the same uid
+  # llama-server reads the key as. This works whether the daemon is rootful
+  # plain, rootless, or userns-remapped (the dir's group/other write bits
+  # admit the mapped uid either way).
+  keygen:
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    container_name: ${KEYGEN_CONTAINER_NAME}
+    user: "1000:1000"
+    read_only: true
+    tmpfs: [ /tmp:size=8m ]
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ${KEYS_DIR}:/keys
+      - ${KEYGEN_SCRIPT}:/keygen.sh:ro
+    entrypoint: ["/bin/sh", "/keygen.sh"]
+    restart: "no"
+
+  llama-server:
+    image: ${IMAGE}
+    container_name: ${CONTAINER_NAME}
+
+    # must match the UID/GID created in the Dockerfile (llama, uid 1000)
+    user: "1000:1000"
+    read_only: true
+    init: true
+    pids_limit: 128
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+    depends_on:
+      keygen:
+        condition: service_completed_successfully
+
+    # NO public port: the browser reaches llama-server only through the
+    # nginx UI container. Uncomment temporarily for direct API debugging.
+    # ports:
+    #   - "127.0.0.1:${PORT}:8080"
+
+    volumes:
+      # ROUTER MODE: every *.gguf in here is selectable at request time.
+      - ${MODEL_DIR}:/models:ro
+      # per-startup rotated API key (replaces the old compose `secrets:` block)
+      - ${KEYS_DIR}/api_key:/run/secrets/llama_api_key:ro
+      # Optional preset file — see hints in earlier revisions.
+      # - ${PRESET_FILE}:/presets.ini:ro
+
+    # Resource ceilings — size MEM_LIMIT for the sum of models that may be
+    # resident at once in router mode.
+    cpus: ${CPU_LIMIT}
+    mem_limit: ${MEM_LIMIT}
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5m
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Single source of truth for all server flags. Router mode: no -m flag.
+    # The key reaches the server only via the (rotated) key file; never
+    # switch to --api-key here.
+    command: >
+      --models-dir /models
+      --host 0.0.0.0
+      --port 8080
+      -c ${CONTEXT}
+      -t ${THREADS}
+      --parallel ${PARALLEL}
+      --api-key-file /run/secrets/llama_api_key
+
+  # ---------- Static UI + same-origin API proxy (auth-injecting) ----------
+  # Serves terminal.html and reverse-proxies the llama-server API on the
+  # SAME origin. The Authorization header is injected by nginx from the
+  # generated auth.conf snippet — the browser sends no credentials.
+  llama-ui:
+    image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+    container_name: ${UI_CONTAINER_NAME}
+
+    user: "101:101"
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=32m,uid=101,gid=101,mode=0700
+      - /var/run:size=8m,uid=101,gid=101,mode=0755
+      - /tmp:size=16m,uid=101,gid=101,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+    depends_on:
+      keygen:
+        condition: service_completed_successfully
+      llama-server:
+        condition: service_healthy
+
+    ports:
+      - "127.0.0.1:${UI_PORT}:8080"   # localhost-only dashboard
+
+    volumes:
+      - ${UI_HTML_FILE}:/usr/share/nginx/html/index.html:ro
+      - ${UI_NGINX_CONF}:/etc/nginx/conf.d/default.conf:ro
+      # generated auth snippet: proxy_set_header Authorization "Bearer <key>"
+      - ${KEYS_DIR}/auth.conf:/etc/nginx/secrets/auth.conf:ro
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/ >/dev/null"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+    restart: unless-stopped
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+

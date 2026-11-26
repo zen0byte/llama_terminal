@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLAMA://TERMINAL</title>
+<style>
+  /* ---- Color themes (data-theme on <body>) ---- */
+  body[data-theme="phosphor"] {
+    --bg: #0a0f0a; --panel: #0e1610; --border: #1d3a24;
+    --accent: #39ff5e; --accent-dim: #1f8f3a; --accent-faint: #143018;
+    --soft-text: #cfeedd; --warn: #ffd23f; --err: #ff5257;
+    --sel-shadow: rgba(57,255,94,.35); --glow: rgba(57,255,94,.45);
+  }
+  body[data-theme="amber"] {
+    --bg: #0f0c06; --panel: #17130a; --border: #3d2f12;
+    --accent: #ffb63d; --accent-dim: #a3701c; --accent-faint: #2a1f0d;
+    --soft-text: #f4e3c2; --warn: #7dd3ff; --err: #ff5257;
+    --sel-shadow: rgba(255,182,61,.35); --glow: rgba(255,182,61,.45);
+  }
+  body[data-theme="magcyan"] {
+    --bg: #0b0714; --panel: #120d1e; --border: #33205a;
+    --accent: #ff3ddb; --accent-dim: #962f86; --accent-faint: #241040;
+    --soft-text: #ffd9f6; --warn: #35e6ff; --err: #ff5257;
+    --sel-shadow: rgba(255,61,219,.35); --glow: rgba(255,61,219,.45);
+  }
+  body[data-theme="ice"] {
+    --bg: #060b12; --panel: #0a1220; --border: #16324f;
+    --accent: #37d4ff; --accent-dim: #1c7fa6; --accent-faint: #0c1e30;
+    --soft-text: #d3effc; --warn: #ffc93d; --err: #ff5257;
+    --sel-shadow: rgba(55,212,255,.35); --glow: rgba(55,212,255,.45);
+  }
+  body[data-theme="void"] {
+    --bg: #000000; --panel: #050505; --border: #2a2a2a;
+    --accent: #e8e8e8; --accent-dim: #8a8a8a; --accent-faint: #111111;
+    --soft-text: #ffffff; --warn: #ffd23f; --err: #ff5257;
+    --sel-shadow: rgba(232,232,232,.28); --glow: rgba(232,232,232,.25);
+  }
+
+  :root {
+    --font: "IBM Plex Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--accent);
+    font-family: var(--font);
+    font-size: 14px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  /* CRT scanlines + vignette */
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 99;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px);
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 98;
+    box-shadow: inset 0 0 180px rgba(0,0,0,.75);
+  }
+
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    flex-wrap: wrap;
+  }
+  .logo { font-weight: 700; letter-spacing: 2px; text-shadow: 0 0 8px var(--accent-dim); }
+  .badge {
+    border: 1px solid var(--accent-dim); padding: 2px 10px; border-radius: 3px;
+    font-size: 12px; color: var(--accent); background: var(--accent-faint);
+  }
+  .badge.off { color: var(--err); border-color: var(--err); }
+  .badge.warn { color: var(--warn); border-color: var(--warn); }
+  .spacer { flex: 1; }
+  .ctx-meter { width: 160px; height: 10px; border: 1px solid var(--accent-dim); border-radius: 2px; overflow: hidden; }
+  .ctx-meter > div { height: 100%; background: var(--accent-dim); width: 0%; transition: width .3s; }
+  #conn-label { font-size: 11px; color: var(--accent-dim); }
+
+  select#theme-select {
+    appearance: none; -webkit-appearance: none;
+    font-family: var(--font); font-size: 11px; letter-spacing: 1px;
+    color: var(--accent); background: var(--accent-faint);
+    border: 1px solid var(--accent-dim); border-radius: 3px;
+    padding: 3px 22px 3px 8px; cursor: pointer;
+    background-image: linear-gradient(45deg, transparent 50%, var(--accent) 50%),
+                      linear-gradient(135deg, var(--accent) 50%, transparent 50%);
+    background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    text-transform: lowercase;
+  }
+  select#theme-select:hover, select#theme-select:focus {
+    box-shadow: 0 0 8px var(--sel-shadow);
+    outline: none;
+  }
+  select#theme-select option {
+    background: var(--panel); color: var(--accent);
+    font-family: var(--font); font-size: 11px;
+  }
+
+  main { flex: 1; display: grid; grid-template-columns: 260px 1fr 240px; min-height: 0; }
+  section { min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+  section:last-child { border-right: none; }
+  h2 {
+    font-size: 11px; letter-spacing: 2px; color: var(--accent-dim);
+    padding: 8px 12px; border-bottom: 1px solid var(--border); text-transform: uppercase;
+  }
+  .pad { padding: 10px 12px; overflow-y: auto; }
+
+  /* ---- left: models ---- */
+  .model-item {
+    border: 1px solid var(--border); border-radius: 3px; padding: 8px 10px;
+    margin-bottom: 8px; cursor: pointer; background: var(--panel);
+  }
+  .model-item:hover { border-color: var(--accent-dim); }
+  .model-item.selected { border-color: var(--accent); box-shadow: 0 0 8px var(--sel-shadow); }
+  .model-item .id { font-size: 13px; word-break: break-all; }
+  .model-item .meta { font-size: 11px; color: var(--accent-dim); margin-top: 3px; }
+  .model-item.loaded { border-color: var(--accent-dim); }
+  .model-item.loaded .meta::before { content: "⚡ "; }
+  button {
+    font-family: var(--font); font-size: 12px;
+    background: var(--accent-faint); color: var(--accent);
+    border: 1px solid var(--accent-dim); border-radius: 3px;
+    padding: 5px 12px; cursor: pointer; letter-spacing: 1px;
+  }
+  button:hover { box-shadow: 0 0 8px var(--sel-shadow); }
+  button.danger { color: var(--err); border-color: var(--err); }
+  button:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
+
+  /* ---- center: chat ---- */
+  #chat-log { flex: 1; overflow-y: auto; padding: 14px; }
+  .msg { margin-bottom: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+  .msg .who { font-size: 11px; color: var(--accent-dim); letter-spacing: 1px; margin-bottom: 3px; }
+  .msg.user .body { color: var(--soft-text); }
+  .msg.assistant .body { text-shadow: 0 0 6px var(--glow); }
+  .msg.error .body { color: var(--err); }
+  .cursor { display: inline-block; width: 8px; height: 14px; background: var(--accent);
+            vertical-align: text-bottom; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* per-response telemetry footer */
+  .msg-meta {
+    margin-top: 6px; font-size: 10px; color: var(--accent-dim);
+    border-top: 1px dashed var(--accent-faint); padding-top: 4px;
+    display: flex; flex-wrap: wrap; gap: 4px 14px; line-height: 1.4;
+    white-space: nowrap;
+  }
+  .msg-meta b { color: var(--soft-text); font-weight: 400; }
+  .msg-meta .src-srv::after { content: " Ⓢ"; }
+  .msg-meta .finish-length { color: var(--warn); }
+  .msg-meta .finish-aborted { color: var(--err); }
+
+  #composer { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--border); }
+  #prompt {
+    flex: 1; background: var(--bg); color: var(--accent);
+    border: 1px solid var(--accent-dim); border-radius: 3px;
+    font-family: var(--font); font-size: 14px; padding: 9px 12px; resize: none;
+    height: 46px;
+  }
+  #prompt:focus { outline: none; box-shadow: 0 0 8px var(--sel-shadow); }
+
+  /* ---- right: params + connection ---- */
+  .field { margin-bottom: 12px; }
+  .field label { display: flex; justify-content: space-between; font-size: 11px; color: var(--accent-dim); margin-bottom: 4px; }
+  .field input[type=range] { width: 100%; accent-color: var(--accent); }
+  .field input[type=text], .field input[type=password], .field input[type=number], .field select {
+    width: 100%; background: var(--bg); color: var(--accent);
+    border: 1px solid var(--border); border-radius: 3px;
+    font-family: var(--font); font-size: 12px; padding: 5px 8px;
+  }
+  .hint { font-size: 10px; color: var(--accent-dim); margin-top: 8px; line-height: 1.5; }
+  .btnrow { display: flex; gap: 8px; margin-top: 4px; }
+</style>
+</head>
+<body data-theme="phosphor">
+
+<header>
+  <div class="logo">LLAMA://TERMINAL</div>
+  <span class="badge warn" id="conn-badge">OFFLINE</span>
+  <span class="badge" id="model-badge">NO MODEL</span>
+  <div class="spacer"></div>
+  <select id="theme-select" title="color scheme">
+    <option value="phosphor">▮ green phosphor</option>
+    <option value="amber">▮ amber crt</option>
+    <option value="magcyan">▮ mag/cyan neon</option>
+    <option value="ice">▮ ice blue</option>
+    <option value="void">▮ void (black / white)</option>
+  </select>
+  <div id="conn-label"></div>
+  <div class="ctx-meter" title="estimated context usage"><div id="ctx-fill"></div></div>
+</header>
+
+<main>
+  <!-- MODELS -->
+  <section>
+    <h2>Model Roster</h2>
+    <div class="pad" id="model-list">— connect to load —</div>
+    <div class="pad" style="border-top:1px solid var(--border)">
+      <button id="btn-refresh" style="width:100%">↻ RESCAN MODELS</button>
+      <div class="hint" id="scan-info"></div>
+    </div>
+  </section>
+
+  <!-- CHAT -->
+  <section>
+    <h2>Prompt Console</h2>
+    <div id="chat-log"></div>
+    <div id="composer">
+      <textarea id="prompt" placeholder="type prompt — Enter to send, Shift+Enter for newline"></textarea>
+      <button id="btn-send" style="align-self:flex-end;height:46px">SEND ▶</button>
+      <button id="btn-stop" class="danger" style="align-self:flex-end;height:46px" disabled>■ STOP</button>
+    </div>
+  </section>
+
+  <!-- PARAMS + CONNECTION -->
+  <section>
+    <h2>Parameters</h2>
+    <div class="pad">
+      <div class="field">
+        <label>temperature <output id="o-temp">0.80</output></label>
+        <input type="range" id="p-temp" min="0" max="2" step="0.05" value="0.8">
+      </div>
+      <div class="field">
+        <label>top_p <output id="o-topp">0.95</output></label>
+        <input type="range" id="p-topp" min="0" max="1" step="0.01" value="0.95">
+      </div>
+      <div class="field">
+        <label>max tokens <output id="o-maxtok">512</output></label>
+        <input type="range" id="p-maxtok" min="16" max="4096" step="16" value="512">
+      </div>
+
+      <div class="field" style="margin-top:14px">
+        <label>system prompt</label>
+        <input type="text" id="p-sys" value="You are a helpful assistant. Answer clearly and concisely, using Markdown.">
+      </div>
+
+      <h2 style="margin:10px -12px">Connection</h2>
+      <div class="field">
+        <label>host <span class="hint" style="margin:0">(empty = same origin)</span></label>
+        <input type="text" id="c-host" value="" placeholder="(same origin as this page)">
+      </div>
+      <div class="btnrow">
+        <button id="btn-connect">CONNECT</button>
+      </div>
+      <div class="hint">No API key needed here: the nginx UI container injects the per-startup rotated key into every proxied request server-side. The key never enters this browser.<br><br><b>New model not listed?</b> The router scans --models-dir at startup. Drop the GGUF in, then <code>docker compose restart llama-server</code>, and rescan here.</div>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+let state = {
+  host: localStorage.getItem("lt_host") || "",
+  model: localStorage.getItem("lt_model") || "",
+  theme: localStorage.getItem("lt_theme") || "phosphor",
+  models: [],          // id -> meta {loaded}
+  controller: null,    // AbortController for the active generation
+  busy: false,
+  ctxUsed: 0, ctxTotal: 0,
+};
+
+/* ---------- theme ---------- */
+const THEMES = ["phosphor", "amber", "magcyan", "ice", "void"];
+function applyTheme(t) {
+  if (!THEMES.includes(t)) t = "phosphor";
+  document.body.dataset.theme = t;
+  localStorage.setItem("lt_theme", t);
+  $("theme-select").value = t;
+}
+
+/* ---------- DOM helpers (XSS-safe: ALL dynamic strings go through
+ * textContent, never innerHTML; innerHTML is used only for FIXED,
+ * developer-authored structural markup with no interpolation) ---------- */
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+/* ---------- connection ---------- */
+/*
+ * NO Authorization header anywhere: the nginx UI container injects the
+ * per-startup rotated API key server-side. If a request 401s, the key was
+ * rotated by a restart — just reconnect.
+ */
+function headers(extra = {}) {
+  return { "Content-Type": "application/json", ...extra };
+}
+function apiUrl(path) {
+  return (state.host ? state.host.replace(/\/+$/, "") : "") + path;
+}
+function setBadge(b, cls, text) { b.className = "badge " + cls; b.textContent = text; }
+
+async function getJSON(path) {
+  const sep = path.includes("?") ? "&" : "?";
+  const r = await fetch(apiUrl(path) + `${sep}_=${Date.now()}`,
+    { headers: headers(), cache: "no-store" });
+  if (r.status === 401) throw new Error("401 — key rotated? reconnect (or restart was mid-flight)");
+  if (!r.ok) throw new Error(`HTTP ${r.status} @ ${path}`);
+  return r.json();
+}
+
+async function scanModels() {
+  const found = new Map();
+  try {
+    const j = await getJSON("/models");
+    for (const m of (Array.isArray(j) ? j : (j.models ?? j.data ?? []))) {
+      const id = m.id ?? m.slug ?? m.model ?? m.name;
+      if (id) found.set(String(id), { loaded: /^(loaded|online|ready)$/i.test(m.state ?? m.status ?? "") });
+    }
+  } catch (_) { /* router-only endpoint; fine if absent */ }
+  try {
+    const j = await getJSON("/v1/models");
+    for (const m of (j.data || [])) {
+      if (m.id && !found.has(String(m.id))) found.set(String(m.id), { loaded: false });
+    }
+  } catch (e) {
+    if (!found.size) throw e;
+  }
+  return found;
+}
+
+async function connect() {
+  state.host = $("c-host").value.trim();
+  $("conn-label").textContent = state.host || "(same origin)";
+  setBadge($("conn-badge"), "warn", "CONNECTING…");
+  try {
+    state.models = await scanModels();
+    renderModels();
+    setBadge($("conn-badge"), "", "ONLINE");
+    $("scan-info").textContent =
+      `${state.models.size} model(s) · scanned ${new Date().toLocaleTimeString()} · no-cache`;
+    if (!state.model && state.models.size) selectModel([...state.models.keys()][0]);
+  } catch (e) {
+    setBadge($("conn-badge"), "off", "OFFLINE");
+    renderModelError(String(e));
+  }
+}
+
+/* ---------- model roster ---------- */
+function renderModels() {
+  const box = $("model-list");
+  box.replaceChildren();
+  if (!state.models.size) { box.textContent = "no models advertised"; return; }
+  for (const [id, meta] of state.models) {
+    const d = el("div", "model-item" + (id === state.model ? " selected" : "") + (meta.loaded ? " loaded" : ""));
+    d.appendChild(el("div", "id", id));
+    d.appendChild(el("div", "meta", id === state.model ? "● SELECTED" : (meta.loaded ? "resident" : "available")));
+    d.onclick = () => selectModel(id);
+    box.appendChild(d);
+  }
+}
+function renderModelError(msg) {
+  const d = el("div", "model-item");
+  d.style.borderColor = "var(--err)";
+  d.textContent = "scan failed: " + msg;
+  $("model-list").replaceChildren(d);
+}
+function selectModel(id) {
+  state.model = id;
+  localStorage.setItem("lt_model", id);
+  $("model-badge").textContent = id.toUpperCase().slice(0, 28);
+  renderModels();
+  addMsg("system", "model selected: " + id + " — first prompt may trigger a cold GGUF load.");
+}
+
+/* ---------- chat ---------- */
+function addMsg(role, text) {
+  const log = $("chat-log");
+  const d = el("div", "msg " + role);
+  const whoMap = { user: "YOU", system: "SYS", error: "ERR" };
+  d.appendChild(el("div", "who", role === "assistant" ? (state.model || "MODEL") : (whoMap[role] || role)));
+  const body = el("div", "body", text);
+  d.appendChild(body);
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+  return d;
+}
+
+/* Per-response telemetry footer — DOM-built, no innerHTML.
+ * finish is mapped to a KNOWN class set; unknown values render unstyled. */
+function attachMeta(msgEl, stats) {
+  const meta = el("div", "msg-meta");
+  const FINISH_CLASS = { length: "finish-length", aborted: "finish-aborted" };
+
+  const addStat = (cls, label, value) => {
+    const s = el("span", cls || null);
+    s.append(label + " ");
+    const b = el("b", null, value);
+    s.appendChild(b);
+    meta.appendChild(s);
+  };
+
+  if (stats.ttft != null)    addStat(stats.srcSrv ? "src-srv" : null, "ttft", stats.ttft.toFixed(2) + "s");
+  if (stats.genTime != null) addStat(stats.srcSrv ? "src-srv" : null, "gen", stats.genTime.toFixed(2) + "s");
+  if (stats.tokens != null)  addStat(null, "out", stats.tokens + " tok");
+  if (stats.tps != null)     addStat(null, "", stats.tps.toFixed(1) + " tok/s");
+  if (stats.promptTok != null) addStat(null, "in", stats.promptTok + " tok");
+  if (stats.ctxAfter != null)   addStat(null, "ctx ≈", String(stats.ctxAfter));
+  if (stats.total != null)       addStat(null, "total", stats.total.toFixed(2) + "s");
+  if (stats.finish) {
+    const s = el("span", FINISH_CLASS[stats.finish] || null, "⏹ " + stats.finish);
+    meta.appendChild(s);
+  }
+  if (stats.params) meta.title = stats.params;   // title attr: plain text, no HTML parsing
+  msgEl.appendChild(meta);
+}
+
+function updateCtxMeter() {
+  const chars = [...document.querySelectorAll("#chat-log .body")].reduce((n, e) => n + e.textContent.length, 0);
+  state.ctxUsed = Math.ceil(chars / 4);
+  const pct = state.ctxTotal ? Math.min(100, 100 * state.ctxUsed / state.ctxTotal) : 0;
+  $("ctx-fill").style.width = pct + "%";
+  $("ctx-fill").title = `~${state.ctxUsed}${state.ctxTotal ? " / " + state.ctxTotal : ""} tokens`;
+}
+
+async function send() {
+  const ta = $("prompt");
+  const text = ta.value.trim();
+  if (!text || state.busy) return;
+  if (!state.model) { addMsg("error", "no model selected — scan the roster first."); return; }
+
+  ta.value = "";
+  addMsg("user", text);
+  updateCtxMeter();
+
+  state.busy = true;
+  state.controller = new AbortController();
+  $("btn-send").disabled = true;
+  $("btn-stop").disabled = false;
+
+  const snap = {
+    temp: parseFloat($("p-temp").value),
+    topp: parseFloat($("p-topp").value),
+    maxtok: parseInt($("p-maxtok").value, 10),
+    sys: $("p-sys").value,
+  };
+
+  const t0 = performance.now();
+  let firstTok = 0, tokens = 0;
+  let finish = null;
+  let usage = null;
+  let timings = null;
+  const msgEl = addMsg("assistant", "");
+  const body = msgEl.querySelector(".body");
+  body.appendChild(el("span", "cursor"));
+  const cursor = body.querySelector(".cursor");
+
+  try {
+    const res = await fetch(apiUrl("/v1/chat/completions"), {
+      method: "POST",
+      headers: headers(),
+      signal: state.controller.signal,
+      body: JSON.stringify({
+        model: state.model,
+        stream: true,
+        stream_options: { include_usage: true },
+        temperature: snap.temp,
+        top_p: snap.topp,
+        max_tokens: snap.maxtok,
+        messages: [
+          { role: "system", content: snap.sys },
+          { role: "user", content: text },
+        ],
+      }),
+    });
+    if (res.status === 401) throw new Error("401 — API key rotated by a restart; click CONNECT");
+    if (res.status === 429) throw new Error("429 — rate limited by the proxy; retry shortly");
+    if (!res.ok) throw new Error("HTTP " + res.status + " " + (await res.text()).slice(0, 200));
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        let j; try { j = JSON.parse(payload); } catch { continue; }
+        if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+        const ch = j.choices?.[0];
+        const piece = ch?.delta?.content ?? "";
+        if (piece) {
+          if (!firstTok) firstTok = performance.now();
+          tokens++;
+          cursor.before(document.createTextNode(piece));  // text node, not HTML
+          $("chat-log").scrollTop = $("chat-log").scrollHeight;
+        }
+        if (ch?.finish_reason) finish = ch.finish_reason;
+        if (j.usage) usage = j.usage;
+        if (j.timings) timings = j.timings;
+      }
+    }
+  } catch (e) {
+    if (e.name === "AbortError") { body.append("\n[stopped]"); finish = "aborted"; }
+    else {
+      msgEl.remove();                              // drop the empty assistant bubble
+      addMsg("error", String(e));
+      finish = null;
+    }
+  } finally {
+    cursor.remove();
+    const total = (performance.now() - t0) / 1000;
+
+    let ttft, genTime, tps, outTok, promptTok, srcSrv = false;
+    if (timings && timings.predicted_ms > 0) {
+      srcSrv = true;
+      ttft = timings.prompt_ms / 1000;
+      genTime = timings.predicted_ms / 1000;
+      outTok = timings.predicted_n ?? tokens;
+      tps = outTok / (genTime || 1);
+      promptTok = timings.prompt_n;
+    } else {
+      ttft = firstTok ? (firstTok - t0) / 1000 : null;
+      genTime = firstTok ? (performance.now() - firstTok) / 1000 : null;
+      outTok = usage?.completion_tokens ?? tokens;
+      tps = genTime ? outTok / genTime : null;
+      promptTok = usage?.prompt_tokens;
+    }
+    const ctxAfter = usage?.total_tokens ?? state.ctxUsed;
+    if (usage?.total_tokens) state.ctxTotal = Math.max(state.ctxTotal, usage.total_tokens);
+
+    attachMeta(msgEl, {
+      ttft, genTime, tokens: outTok, tps, promptTok,
+      ctxAfter, total, finish: finish ?? "done", srcSrv,
+      params: `model=${state.model} temp=${snap.temp} top_p=${snap.topp} max_tokens=${snap.maxtok}\nsystem: ${snap.sys}`,
+    });
+
+    updateCtxMeter();
+    state.busy = false;
+    state.controller = null;
+    $("btn-send").disabled = false;
+    $("btn-stop").disabled = true;
+  }
+}
+
+function stopGen() { if (state.controller) state.controller.abort(); }
+
+/* ---------- wiring ---------- */
+$("btn-connect").onclick = connect;
+$("btn-refresh").onclick = connect;
+$("btn-send").onclick = send;
+$("btn-stop").onclick = stopGen;
+$("prompt").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+$("theme-select").addEventListener("change", e => applyTheme(e.target.value));
+for (const [id, out, fmt] of [
+  ["p-temp", "o-temp", v => (+v).toFixed(2)],
+  ["p-topp", "o-topp", v => (+v).toFixed(2)],
+  ["p-maxtok", "o-maxtok", v => String(v)],
+]) {
+  $(id).addEventListener("input", e => $(out).textContent = fmt(e.target.value));
+}
+
+/* init */
+applyTheme(state.theme);
+$("c-host").value = state.host;
+addMsg("system", "LLAMA://TERMINAL ready. CONNECT, pick a model, prompt away. Auth is handled by the proxy — no key needed here.");
+connect();
+</script>
+</body>
+</html>

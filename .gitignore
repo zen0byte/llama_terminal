@@ -1,0 +1,5 @@
+# local config — contains paths and the container name scheme
+.env
+
+# models are large and licensed per-download; never commit GGUFs
+models/
