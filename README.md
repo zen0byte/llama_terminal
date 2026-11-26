@@ -2,6 +2,8 @@
 
 A hardened, self-hosted llama.cpp deployment: digest-pinned, SHA-verified build, router mode for multi-model switching, a neon-terminal web UI, and a per-startup rotating API key — all bound to localhost, all running as unprivileged users.
 
+<img src="docs/assets/llama_terminal.png" alt="Screenshot of the app" width="400">
+
 ## Implementation
 
 ```
